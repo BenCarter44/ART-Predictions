@@ -14,11 +14,17 @@ python your_script.py --config config/conf.json --domains config/Domains.json --
 
 ## Conf File
 The configuration json includes data necessary to run such as the desired repo or access tokens. Example:
+
 {
-    "github_token": "your_github_token",
-    "repo_owner": "repository_owner",
-    "repo_name": "repository_name",
-    "openAI_key": "your_openai_api_key"
+
+"github_token": "your_github_token",
+
+"repo_owner": "repository_owner",
+
+"repo_name": "repository_name",
+
+"openAI_key": "your_openai_api_key"
+
 }
 
 ## Domains
