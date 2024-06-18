@@ -36,8 +36,8 @@ def get_pr_data(db_path, pr):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    query = f'SELECT * FROM outputTable WHERE "PR #" = {str(pr)}'
-    cursor.execute(query)
+    query = f'SELECT * FROM outputTable WHERE "PR #" = ?'
+    cursor.execute(query, (pr,))
 
     query_data = cursor.fetchall()
 
