@@ -1,0 +1,6 @@
+pandas~=2.2.2
+numpy~=1.26.4
+emoji~=2.12.1
+openai~=1.33.0
+tiktoken~=0.7.0
+requests~=2.32.2
