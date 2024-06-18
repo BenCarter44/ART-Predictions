@@ -1,4 +1,3 @@
-# Importing libraries
 import pandas as pd
 import sqlite3
 from openai import OpenAI
@@ -9,6 +8,7 @@ import json
 import concurrent.futures
 import requests
 import numpy as np
+import argparse  # Import argparse module
 
 
 def db_to_df(db_path):
@@ -335,49 +335,60 @@ def responses_to_csv(gpt_responses):
     return gpt_predictions
 
 
-# Load JSON from file
-with open('conf.json', 'r') as f:
-    repo_data = json.load(f)
-
-with open("Domains.json", 'r') as file:
-    domain_dictionary = json.load(file)
-
-# Get repo data
-github_key = repo_data['github_token']
-owner = repo_data['repo_owner']
-repo = repo_data['repo_name']
-openAI_key = repo_data['openAI_key']
-
-# Load data and preprocess
-print('Loading data from database')
-db_path = 'main.db'
-df = db_to_df(db_path)
-columns_to_convert = df.columns[15:]
-df[columns_to_convert] = df[columns_to_convert].applymap(lambda x: 1 if x > 0 else 0)
-df['issue text'] = df['issue text'].apply(clean_text)
-df['issue description'] = df['issue description'].apply(clean_text)
-df = filter_domains(df)
+def parse_args():
+    parser = argparse.ArgumentParser(description="Process some files.")
+    parser.add_argument('--config', type=str, required=True, help='Path to the conf.json file')
+    parser.add_argument('--domains', type=str, required=True, help='Path to the Domains.json file')
+    parser.add_argument('--db', type=str, required=True, help='Path to the SQLite database file')
+    return parser.parse_args()
 
 
-# Generate fine tuning file
-system_message, assistant_message = generate_system_message(domain_dictionary, df)
-generate_gpt_messages(system_message, assistant_message, df)
+def main():
+    args = parse_args()  # Parse the command-line arguments
 
-# Fine tune GPT Model
-llm_classifier = fine_tune_gpt(openAI_key)
+    # Load JSON from file
+    with open(args.config, 'r') as f:
+        repo_data = json.load(f)
 
-# Extract open issues
-print('Extracting open issues...')
-open_issue_data = get_open_issues(owner, repo, github_key)
-open_issue_data['Title'] = open_issue_data['Title'].apply(clean_text)
-open_issue_data['Body'] = open_issue_data['Body'].apply(clean_text)
+    with open(args.domains, 'r') as file:
+        domain_dictionary = json.load(file)
 
-# Classify open issues
-print('Classifying open Issues...')
-gpt_responses = get_gpt_responses(open_issue_data, llm_classifier, system_message, openAI_key)
-predictions_df = responses_to_csv(gpt_responses)
-predictions_df.to_csv('llm_prediction_data.csv', index=False)
+    # Get repo data
+    github_key = repo_data['github_token']
+    owner = repo_data['repo_owner']
+    repo = repo_data['repo_name']
+    openAI_key = repo_data['openAI_key']
 
-print('Open issue predictions written to csv')
+    # Load data and preprocess
+    print('Loading data from database')
+    db_path = args.db  # Use the database path from the arguments
+    df = db_to_df(db_path)
+    columns_to_convert = df.columns[15:]
+    df[columns_to_convert] = df[columns_to_convert].applymap(lambda x: 1 if x > 0 else 0)
+    df['issue text'] = df['issue text'].apply(clean_text)
+    df['issue description'] = df['issue description'].apply(clean_text)
+    df = filter_domains(df)
 
+    # Generate fine tuning file
+    system_message, assistant_message = generate_system_message(domain_dictionary, df)
+    generate_gpt_messages(system_message, assistant_message, df)
 
+    # Fine tune GPT Model
+    llm_classifier = fine_tune_gpt(openAI_key)
+
+    # Extract open issues
+    print('Extracting open issues...')
+    open_issue_data = get_open_issues(owner, repo, github_key)
+    open_issue_data['Title'] = open_issue_data['Title'].apply(clean_text)
+    open_issue_data['Body'] = open_issue_data['Body'].apply(clean_text)
+
+    # Classify open issues
+    print('Classifying open Issues...')
+    gpt_responses = get_gpt_responses(open_issue_data, llm_classifier, system_message, openAI_key)
+    predictions_df = responses_to_csv(gpt_responses)
+    predictions_df.to_csv('llm_prediction_data.csv', index=False)
+
+    print('Open issue predictions written to csv')
+
+if __name__ == "__main__":
+    main()
