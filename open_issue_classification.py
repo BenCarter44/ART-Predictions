@@ -151,7 +151,7 @@ def filter_domains(df):
 
     df = df.drop(columns=columns_to_drop)
 
-    # sort occurence dictionary to determine top domains and return top 15
+    # sort occurrence dictionary to determine top domains and return top 15
     occurrence_dictionary = sort_dict_by_values(occurrence_dictionary)
     num_of_domains = 15
     return get_top_domains(num_of_domains, occurrence_dictionary, df)
@@ -393,7 +393,7 @@ def train_random_forest(x_train, y_train):
     return clf
 
 
-def clean_text(vectorizer, df):
+def clean_text_rf(vectorizer, df):
     # combine text columns
     text = df[['Title', 'Body']]
     text['combined_text'] = text['Title'] + " " + text['Body']
@@ -525,7 +525,7 @@ def run_rf(args):
     print('collecting open issues...')
     open_issue_data = get_open_issues(owner, repo, github_key)  # get open issue number and text
 
-    vectorized_text = clean_text(tfidf, open_issue_data)  # vectorize issue text
+    vectorized_text = clean_text_rf(tfidf, open_issue_data)  # vectorize issue text
 
     print('classifying open issues...')
     predictions_df = predict_open_issues(open_issue_data, clf, vectorized_text, y_df)  # predict for open issues
