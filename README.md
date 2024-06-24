@@ -1,4 +1,4 @@
-# LLM Classification
+# Open Issue Classification
 This project classifies GitHub issues by domains and subdomains using a fine-tuned GPT model. 
 The script processes data from an SQLite database, prepares training data, fine-tunes a GPT model, and then classifies open issues in a specified GitHub repository.
 
@@ -7,10 +7,10 @@ Refer to the requirements.txt file and ensure that each library is installed as 
 
 ## Use
 To run, change the working directory to the location of the python script and run the following command:
-python your_script.py --config path/to/conf.json --domains path/to/Domains.json --db path/to/main.db
+python your_script.py --config path/to/conf.json --domains path/to/Domains.json --db path/to/main.db --method (LLM or RF)
 
 Example:
-python your_script.py --config config/conf.json --domains config/Domains.json --db data/main.db
+python your_script.py --config config/conf.json --domains config/Domains.json --db data/main.db --method RF
 
 ## Conf File
 The configuration json includes data necessary to run such as the desired repo or access tokens. Example:
@@ -29,3 +29,11 @@ The configuration json includes data necessary to run such as the desired repo o
 
 ## Domains
 The Domains json file includes domains, subdomains, and descriptions. This should be downloaded from the repo to ensure you work with a good set of domains.
+
+## Database
+The database file should be the outputted file from the engine code containing Issue data
+
+## Method
+The method argument controls what modle will be trained (largle language or random forest). LLM involves fine tuning a OpenAI GPT model, so an Open AI key required for this method.
+
+

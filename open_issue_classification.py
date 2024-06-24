@@ -8,6 +8,11 @@ import json
 import concurrent.futures
 import requests
 import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import MultiLabelBinarizer
+from sklearn.neighbors import NearestNeighbors
+from sklearn.ensemble import RandomForestClassifier
+import random
 import argparse  # Import argparse module
 
 
@@ -146,7 +151,7 @@ def filter_domains(df):
 
     df = df.drop(columns=columns_to_drop)
 
-    # sort occurence dictionary to determine top domains and return top 15
+    # sort occurrence dictionary to determine top domains and return top 15
     occurrence_dictionary = sort_dict_by_values(occurrence_dictionary)
     num_of_domains = 15
     return get_top_domains(num_of_domains, occurrence_dictionary, df)
@@ -266,11 +271,8 @@ def get_open_issues(owner, repo, access_token):
         params['page'] += 1
 
     # Add extracted issues to dataframe
-    counter = 0
     for issue in issues:
-        if counter < 5:
-            data.append([issue['number'], issue['title'], issue['body']])
-        counter += 1
+        data.append([issue['number'], issue['title'], issue['body']])
     print(f"Total issues fetched: {len(issues)}")
     df = pd.DataFrame(columns=['Issue #', 'Title', 'Body'], data=data)
     return df
@@ -335,16 +337,116 @@ def responses_to_csv(gpt_responses):
     return gpt_predictions
 
 
+# Random Forest Functions
+def extract_text_features(data):
+    X_text = data[['issue text', 'issue description']]
+    X_text['combined_text'] = X_text['issue text'] + " " + X_text['issue description']
+    tfidf = TfidfVectorizer(max_features=1000)
+    X_text_features = tfidf.fit_transform(X_text['combined_text']).toarray()
+    return X_text_features, tfidf
+
+
+def transform_labels(data):
+    y = data.drop(columns=['issue text', 'issue description'])
+    y = y.apply(lambda x: x.index[x == 1].tolist(), axis=1)
+    mlb = MultiLabelBinarizer()
+    y_transformed = mlb.fit_transform(y)
+    y_df = pd.DataFrame(y_transformed, columns=mlb.classes_)
+    return y_df, mlb
+
+
+def create_combined_features(x_text_features):
+    X_combined = pd.DataFrame(x_text_features, columns=list(range(x_text_features.shape[1])))
+    return X_combined
+
+
+def perform_mlsmote(X, y, n_sample=500):
+    def nearest_neighbour(X):
+        nbs = NearestNeighbors(n_neighbors=3, metric='euclidean', algorithm='kd_tree').fit(X)
+        _, indices = nbs.kneighbors(X)
+        return indices
+
+    indices2 = nearest_neighbour(X.values)
+    n = len(indices2)
+    new_X = np.zeros((n_sample, X.shape[1]))
+    target = np.zeros((n_sample, y.shape[1]))
+    for i in range(n_sample):
+        reference = random.randint(0, n-1)
+        neighbour = random.choice(indices2[reference, 1:])
+        all_point = indices2[reference]
+        nn_df = y[y.index.isin(all_point)]
+        ser = nn_df.sum(axis=0, skipna=True)
+        target[i] = np.array([1 if val > 2 else 0 for val in ser])
+        ratio = random.random()
+        gap = X.loc[reference, :] - X.loc[neighbour, :]
+        new_X[i] = np.array(X.loc[reference, :] + ratio * gap)
+    new_X = pd.DataFrame(new_X, columns=X.columns)
+    target = pd.DataFrame(target, columns=y.columns)
+    new_X = pd.concat([X, new_X], axis=0)
+    target = pd.concat([y, target], axis=0)
+    return new_X, target
+
+
+def train_random_forest(x_train, y_train):
+    clf = RandomForestClassifier(random_state=42)
+    clf.fit(x_train, y_train)
+    return clf
+
+
+def clean_text_rf(vectorizer, df):
+    # combine text columns
+    text = df[['Title', 'Body']]
+    text['combined_text'] = text['Title'] + " " + text['Body']
+
+    # vectorize text columns
+    vectorized_text = vectorizer.transform(text['combined_text']).toarray()
+    return vectorized_text
+
+
+def predict_open_issues(open_issue_df, model, data, y_df):
+
+    # predict for open issues
+    predicted_values = model.predict(data)
+
+    # get used domains from csv and issue numbers from df
+    columns = y_df.columns
+    columns = columns.insert(0, 'Issue #')
+    issue_numbers = open_issue_df['Issue #'].values
+
+    # link issue number with predictions and add to data
+    prediction_data = []
+    for i in range(len(predicted_values)):
+        curr_prediction = predicted_values[i].tolist()
+        curr_issue = [issue_numbers[i]]
+        prediction_data.append(curr_issue + curr_prediction)
+
+    # convert data to df
+    prediction_df = pd.DataFrame(columns=columns, data=prediction_data)
+    return prediction_df
+
+
+def fetch_gpt_model(args):
+    # Load JSON from file
+    with open(args.config, 'r') as f:
+        repo_data = json.load(f)
+
+    if 'fine_tuned_model' in repo_data:
+        llm_classifier = repo_data['fine_tuned_model']
+        return llm_classifier
+    else:
+        return None
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Process some files.")
     parser.add_argument('--config', type=str, required=True, help='Path to the conf.json file')
     parser.add_argument('--domains', type=str, required=True, help='Path to the Domains.json file')
     parser.add_argument('--db', type=str, required=True, help='Path to the SQLite database file')
+    parser.add_argument('--method', type=str,required=True, help='Prediction method')
     return parser.parse_args()
 
 
-def main():
-    args = parse_args()  # Parse the command-line arguments
+def run_llm(args):
 
     # Load JSON from file
     with open(args.config, 'r') as f:
@@ -373,8 +475,18 @@ def main():
     system_message, assistant_message = generate_system_message(domain_dictionary, df)
     generate_gpt_messages(system_message, assistant_message, df)
 
-    # Fine tune GPT Model
-    llm_classifier = fine_tune_gpt(openAI_key)
+    llm_classifier = fetch_gpt_model(args)
+    if llm_classifier is not None:
+        print('fine tuned model found...')
+        print(llm_classifier)
+    else:
+        print('Fine tuning model...')
+        print(llm_classifier)
+        # Fine tune GPT Model
+        repo_data['fine_tuned_model'] = llm_classifier
+        with open(args.config, 'w') as file:
+            json.dump(repo_data, file, indent=4)
+        llm_classifier = fine_tune_gpt(openAI_key)
 
     # Extract open issues
     print('Extracting open issues...')
@@ -389,6 +501,70 @@ def main():
     predictions_df.to_csv('llm_prediction_data.csv', index=False)
 
     print('Open issue predictions written to csv')
+
+
+def run_rf(args):
+    # Load JSON from file
+    with open(args.config, 'r') as f:
+        repo_data = json.load(f)
+
+    # Get repo data
+    github_key = repo_data['github_token']
+    owner = repo_data['repo_owner']
+    repo = repo_data['repo_name']
+
+    # Load data and preprocess
+    print('Loading data from database')
+    db_path = args.db  # Use the database path from the arguments
+    df = db_to_df(db_path)
+    columns_to_convert = df.columns[15:]
+    df[columns_to_convert] = df[columns_to_convert].applymap(lambda x: 1 if x > 0 else 0)
+    df = df.drop(
+        columns=['PR #', 'Pull Request', 'created_at', 'closed_at', 'userlogin', 'author_name', 'most_recent_commit',
+                 'filename', 'file_commit', 'api', 'function_name', 'api_domain', 'subdomain'])
+    df = df.dropna()
+
+    print('processing data...')
+    X_text_features, tfidf = extract_text_features(df)
+
+    # Transform labels
+    y_df, mlb = transform_labels(df)
+
+    # Combine features
+    X_combined = create_combined_features(X_text_features)
+
+    # Perform MLSMOTE to augment the data
+    print('balancing classes...')
+    X_augmented, y_augmented = perform_mlsmote(X_combined, y_df, n_sample=500)
+
+    print('training RF model...')
+    X_combined = pd.concat([X_combined, X_augmented], axis=0)
+    y_combined = pd.concat([y_df, y_augmented], axis=0)
+
+    # Train
+    clf = train_random_forest(X_combined, y_combined)
+
+    print('collecting open issues...')
+    open_issue_data = get_open_issues(owner, repo, github_key)  # get open issue number and text
+
+    vectorized_text = clean_text_rf(tfidf, open_issue_data)  # vectorize issue text
+
+    print('classifying open issues...')
+    predictions_df = predict_open_issues(open_issue_data, clf, vectorized_text, y_df)  # predict for open issues
+
+    predictions_df.to_csv('open_issue_predictions.csv', index=False)  # write predictions to csv
+
+
+
+
+def main():
+    args = parse_args()  # Parse the command-line arguments
+
+    if args.method == 'LLM':
+        run_llm(args)
+
+    elif args.method == 'RF':
+        run_rf(args)
 
 if __name__ == "__main__":
     main()
