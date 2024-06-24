@@ -425,6 +425,18 @@ def predict_open_issues(open_issue_df, model, data, y_df):
     return prediction_df
 
 
+def fetch_gpt_model(args):
+    # Load JSON from file
+    with open(args.config, 'r') as f:
+        repo_data = json.load(f)
+
+    if 'fine_tuned_model' in repo_data:
+        llm_classifier = repo_data['fine_tuned_model']
+        return llm_classifier
+    else:
+        return None
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Process some files.")
     parser.add_argument('--config', type=str, required=True, help='Path to the conf.json file')
@@ -463,8 +475,18 @@ def run_llm(args):
     system_message, assistant_message = generate_system_message(domain_dictionary, df)
     generate_gpt_messages(system_message, assistant_message, df)
 
-    # Fine tune GPT Model
-    llm_classifier = fine_tune_gpt(openAI_key)
+    llm_classifier = fetch_gpt_model(args)
+    if llm_classifier is not None:
+        print('fine tuned model found...')
+        print(llm_classifier)
+    else:
+        print('Fine tuning model...')
+        print(llm_classifier)
+        # Fine tune GPT Model
+        repo_data['fine_tuned_model'] = llm_classifier
+        with open(args.config, 'w') as file:
+            json.dump(repo_data, file, indent=4)
+        llm_classifier = fine_tune_gpt(openAI_key)
 
     # Extract open issues
     print('Extracting open issues...')
